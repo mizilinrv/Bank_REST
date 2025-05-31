@@ -1,0 +1,41 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/bank_db
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: false
+
+  liquibase:
+    enabled: true
+    change-log: classpath:db/migration/changelog/db.changelog-master.yaml
+
+jwt:
+  secret: 8074658237c236e39e96e909ac1abb25a3e1773b100096ad6877c439cd452c17
+  expiration: 3600000
+
+encryption:
+  secret-key: 5349503452902364520465823643249
+
+logging:
+  level:
+    root: INFO
+    com.example.bankcards: DEBUG
+  file:
+    name: logs/app.log
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+  api-docs:
+    path: /v3/api-docs
