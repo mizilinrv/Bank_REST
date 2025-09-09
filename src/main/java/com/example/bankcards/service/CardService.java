@@ -1,8 +1,22 @@
 package com.example.bankcards.service;
 
-import com.example.bankcards.dto.card.*;
-import com.example.bankcards.entity.*;
-import com.example.bankcards.exception.*;
+import com.example.bankcards.dto.card.CardResponse;
+import com.example.bankcards.dto.card.CreateCardRequest;
+import com.example.bankcards.dto.card.ChangeStatusRequest;
+import com.example.bankcards.dto.card.TransferRequest;
+import com.example.bankcards.dto.card.TransferHistoryResponse;
+import com.example.bankcards.entity.User;
+import com.example.bankcards.entity.RoleType;
+import com.example.bankcards.entity.Card;
+import com.example.bankcards.entity.CardStatus;
+import com.example.bankcards.entity.TransferHistory;
+import com.example.bankcards.exception.AdminCardCreationException;
+import com.example.bankcards.exception.CardNotFoundException;
+import com.example.bankcards.exception.InvalidCardStatusChangeException;
+import com.example.bankcards.exception.NotFoundException;
+import com.example.bankcards.exception.InvalidCardStatusException;
+import com.example.bankcards.exception.ForbiddenOperationException;
+import com.example.bankcards.exception.InvalidCardStateException;
 import com.example.bankcards.repository.CardRepository;
 import com.example.bankcards.repository.TransferHistoryRepository;
 import com.example.bankcards.repository.UserRepository;
@@ -21,23 +35,78 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Service for managing bank cards.
+ * <p>
+ * Provides functionality for:
+ * <ul>
+ *     <li>Creating cards</li>
+ *     <li>Changing card status</li>
+ *     <li>Deleting cards</li>
+ *     <li>Retrieving all cards and user's cards</li>
+ *     <li>Getting card balance</li>
+ *     <li>Transferring between cards</li>
+ *     <li>Retrieving transfer history</li>
+ * </ul>
+ * <p>
+ * Uses {@link CardRepository}, {@link UserRepository}, {@link CardEncryptor},
+ * {@link CardNumberGenerator}, and {@link TransferHistoryRepository}.
+ */
 @Service
 @AllArgsConstructor
 @Slf4j
 public class CardService {
 
+    /**
+     * Repository for performing CRUD operations on {@link Card} entities.
+     */
     private final CardRepository cardRepository;
+
+    /**
+     * Repository for performing CRUD operations on {@link User} entities.
+     */
     private final UserRepository userRepository;
+
+    /**
+     * Component responsible for encrypting and decrypting card numbers.
+     */
     private final CardEncryptor cardEncryptor;
+
+    /**
+     * Component responsible for generating unique card numbers.
+     */
     private final CardNumberGenerator cardNumberGenerator;
+
+    /**
+     * Repository for storing and retrieving {@link TransferHistory} entities.
+     */
     private final TransferHistoryRepository transferHistoryRepository;
 
-    public CardResponse createCard(CreateCardRequest request) {
+    /**
+     * Number of last digits displayed when masking the card number.
+     */
+    private static final int LAST_DIGITS_COUNT = 4;
+
+    /**
+     * Creates a new card for the specified user.
+     *
+     * @param request data for creating the card
+     * @return {@link CardResponse} with information about the created card
+     * @throws EntityNotFoundException if the user is not found
+     * @throws AdminCardCreationException
+     * if trying to create a card for an admin
+     */
+    public CardResponse createCard(final CreateCardRequest request) {
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(EntityNotFoundException::new);
         if (user.getRole() == RoleType.ROLE_ADMIN) {
-            log.warn("Попытка создать карту для администратора с ID {}", user.getId());
-            throw new AdminCardCreationException("Создать карту может только администратор");
+            log.warn(
+                    "Attempt to create card for admin with ID {}",
+                    user.getId()
+            );
+            throw new AdminCardCreationException(
+                    "Only non-admin users can have cards created"
+            );
         }
 
         String rawCardNumber = cardNumberGenerator.generate();
@@ -51,7 +120,7 @@ public class CardService {
                 .balance(request.getBalance())
                 .build();
         Card savedCard = cardRepository.save(card);
-        log.info("Карта успешно создана с ID {}", savedCard.getId());
+        log.info("Card successfully created with ID {}", savedCard.getId());
 
         return new CardResponse(
                 savedCard.getId(),
@@ -63,38 +132,75 @@ public class CardService {
         );
     }
 
-    private String maskCardNumber(String number) {
-        return "**** **** **** " + number.substring(number.length() - 4);
+    /**
+     * Masks the card number, keeping only the last
+     * {@link #LAST_DIGITS_COUNT} digits visible.
+     *
+     * @param number card number
+     * @return masked card number
+     */
+    private String maskCardNumber(final String number) {
+        return "**** **** **** " + number.substring(
+                number.length() - LAST_DIGITS_COUNT
+        );
     }
 
-    public void changeStatus(Long id, ChangeStatusRequest request) {
+    /**
+     * Changes the status of a card.
+     *
+     * @param id card ID
+     * @param request new card status
+     * @throws CardNotFoundException if the card is not found
+     * @throws InvalidCardStatusChangeException
+     * if trying to activate an expired card
+     */
+    public void changeStatus(final Long id, final ChangeStatusRequest request) {
         Card card = cardRepository.findById(id)
-                .orElseThrow(() -> new CardNotFoundException("Карта не с " + id + " найдена"));
-        if (card.getStatus() == CardStatus.EXPIRED && request.getStatus() == CardStatus.ACTIVE) {
-            log.warn("Попытка активировать просроченную карту ID {}", id);
-            throw new InvalidCardStatusChangeException("Невозможно активировать просроченную карту");
+                .orElseThrow(() -> new CardNotFoundException(
+                        "Card with ID " + id + " not found")
+                );
+        if (card.getStatus() == CardStatus.EXPIRED
+                && request.getStatus() == CardStatus.ACTIVE) {
+            log.warn("Attempt to activate expired card ID {}", id);
+            throw new InvalidCardStatusChangeException(
+                    "Cannot activate an expired card"
+            );
         }
         card.setStatus(request.getStatus());
         cardRepository.save(card);
-        log.info("Статус карты ID {} успешно изменен на {}", id, request.getStatus());
+        log.info(
+                "Card status ID {} successfully changed to {}",
+                id,
+                request.getStatus()
+        );
     }
 
-    public void delete(Long id) {
+    /**
+     * Deletes a card by its ID.
+     *
+     * @param id card ID
+     * @throws CardNotFoundException if the card is not found
+     */
+    public void delete(final Long id) {
         Card card = cardRepository.findById(id)
-                .orElseThrow(() -> new CardNotFoundException("Карта не найдена"));
+                .orElseThrow(() -> new CardNotFoundException("Card not found"));
         cardRepository.delete(card);
-        log.info("Карта с ID {} успешно удалена", id);
+        log.info("Card with ID {} successfully deleted", id);
     }
 
-    public Page<CardResponse> getAllCards(Pageable pageable) {
+    /**
+     * Retrieves a page of all cards.
+     *
+     * @param pageable pagination information
+     * @return page of {@link CardResponse}
+     */
+    public Page<CardResponse> getAllCards(final Pageable pageable) {
         Page<Card> cards = cardRepository.findAll(pageable);
-
         return cards.map(this::mapToCardResponse);
     }
 
-    private CardResponse mapToCardResponse(Card card) {
+    private CardResponse mapToCardResponse(final Card card) {
         String masked = maskEncryptedCardNumber(card.getEncryptedNumber());
-
         return new CardResponse(
                 card.getId(),
                 masked,
@@ -104,78 +210,154 @@ public class CardService {
                 card.getBalance()
         );
     }
-    private String maskEncryptedCardNumber(String encryptedNumber) {
+
+    private String maskEncryptedCardNumber(final String encryptedNumber) {
         try {
             String decrypted = cardEncryptor.decrypt(encryptedNumber);
-            return "**** **** **** " + decrypted.substring(decrypted.length() - 4);
+            return "**** **** **** " + decrypted.substring(
+                    decrypted.length() - LAST_DIGITS_COUNT);
         } catch (Exception e) {
             return "**** **** **** ????";
         }
     }
 
-    public Page<CardResponse> getUserCards(String username, Optional<String> status, Pageable pageable) {
+    /**
+     * Retrieves a list of cards for a specific user,
+     * optionally filtered by status.
+     *
+     * @param username user's email
+     * @param status optional card status
+     * @param pageable pagination information
+     * @return page of {@link CardResponse}
+     * @throws NotFoundException if the user is not found
+     * @throws InvalidCardStatusException if an invalid status is provided
+     */
+    public Page<CardResponse> getUserCards(
+            final String username,
+            final Optional<String> status,
+            final Pageable pageable
+    ) {
         User user = userRepository.findByEmail(username)
-                .orElseThrow(() -> new NotFoundException("Пользователь" + username + " не найден"));
+                .orElseThrow(() -> new NotFoundException(
+                        "User " + username + " not found"));
 
         Page<Card> cards;
-
         if (status.isPresent()) {
             CardStatus cardStatus;
             try {
                 cardStatus = CardStatus.valueOf(status.get().toUpperCase());
             } catch (IllegalArgumentException e) {
-                log.warn("Неверный статус карты: {}", status.get());
-                throw new InvalidCardStatusException("Неверный статус карты: " + status.get());
+                log.warn("Invalid card status: {}", status.get());
+                throw new InvalidCardStatusException(
+                        "Invalid card status: " + status.get()
+                );
             }
-
-            cards = cardRepository.findByUserAndStatus(user, cardStatus, pageable);
+            cards = cardRepository.findByUserAndStatus(
+                    user,
+                    cardStatus,
+                    pageable
+            );
         } else {
             cards = cardRepository.findByUser(user, pageable);
         }
-
         return cards.map(this::mapToCardResponse);
     }
 
-    public BigDecimal getCardBalance(Long id, String username) {
+    /**
+     * Retrieves the balance of a card for a specific user.
+     *
+     * @param id card ID
+     * @param username user's email
+     * @return card balance
+     * @throws NotFoundException if the user is not found
+     * @throws CardNotFoundException if the card is not found
+     * @throws ForbiddenOperationException
+     * if the user tries to access someone else's card
+     */
+    public BigDecimal getCardBalance(final Long id, final String username) {
         User user = userRepository.findByEmail(username)
-                .orElseThrow(() -> new NotFoundException("Пользователь не найден: " + username));
+                .orElseThrow(() -> new NotFoundException(
+                        "User not found: " + username)
+                );
 
         Card card = cardRepository.findById(id)
-                .orElseThrow(() -> new CardNotFoundException("Карта с ID не найдена"));
+                .orElseThrow(() -> new CardNotFoundException(
+                        "Card with ID not found")
+                );
 
         if (!card.getUser().getId().equals(user.getId())) {
-            log.warn("Попытка доступа к чужой карте ID {} пользователем {}", id, username);
-            throw new ForbiddenOperationException("У вас нет доступа к балансу этой карты");
+            log.warn(
+                    "Attempt to access another user's card ID {} by {}",
+                    id,
+                    username
+            );
+            throw new ForbiddenOperationException(
+                    "No access to this card's balance"
+            );
         }
 
         return card.getBalance();
     }
 
+    /**
+     * Performs a transfer between two cards belonging to the same user.
+     *
+     * @param request transfer data
+     * @param username user's email
+     * @throws NotFoundException if the user is not found
+     * @throws CardNotFoundException if one of the cards is not found
+     * @throws ForbiddenOperationException
+     * if the cards belong to different users
+     * @throws InvalidCardStateException
+     * if cards are inactive or insufficient funds
+     */
     @Transactional
-    public void transferBetweenCards(TransferRequest request, String username) {
+    public void transferBetweenCards(
+            final TransferRequest request,
+            final String username
+    ) {
         User user = userRepository.findByEmail(username)
-                .orElseThrow(() -> new NotFoundException("Пользователь с email " + username + " не найден"));
+                .orElseThrow(() -> new NotFoundException(
+                        "User with email " + username + " not found")
+                );
 
         Card fromCard = cardRepository.findById(request.getFromCardId())
-                .orElseThrow(() -> new CardNotFoundException("Карта отправителя не найдена"));
+                .orElseThrow(() -> new CardNotFoundException(
+                        "Sender card not found")
+                );
 
         Card toCard = cardRepository.findById(request.getToCardId())
-                .orElseThrow(() -> new CardNotFoundException("Карта получателя не найдена"));
+                .orElseThrow(() -> new CardNotFoundException(
+                        "Receiver card not found")
+                );
 
-        if (!fromCard.getUser().getId().equals(user.getId()) || !toCard.getUser().getId().equals(user.getId())) {
-            log.warn("Попытка перевода между чужими картами пользователем {}", username);
-            throw new ForbiddenOperationException("Вы можете переводить только между своими картами");
+        if (!fromCard.getUser().getId().equals(user.getId())
+                || !toCard.getUser().getId().equals(user.getId())) {
+            log.warn(
+                    "Attempted transfer between other users' cards by {}",
+                    username
+            );
+            throw new ForbiddenOperationException(
+                    "You can only transfer between your own cards"
+            );
         }
 
-        if (fromCard.getStatus() != CardStatus.ACTIVE || toCard.getStatus() != CardStatus.ACTIVE) {
-            throw new InvalidCardStateException("Обе карты должны быть активны для перевода");
+        if (fromCard.getStatus() != CardStatus.ACTIVE
+                || toCard.getStatus() != CardStatus.ACTIVE) {
+            throw new InvalidCardStateException(
+                    "Both cards must be active for transfer"
+            );
         }
 
         if (fromCard.getBalance().compareTo(request.getAmount()) < 0) {
-            throw new InvalidCardStateException("Недостаточно средств на карте отправителя");
+            throw new InvalidCardStateException(
+                    "Insufficient funds on sender's card"
+            );
         }
 
-        fromCard.setBalance(fromCard.getBalance().subtract(request.getAmount()));
+        fromCard.setBalance(
+                fromCard.getBalance().subtract(request.getAmount())
+        );
         toCard.setBalance(toCard.getBalance().add(request.getAmount()));
 
         cardRepository.save(fromCard);
@@ -188,24 +370,42 @@ public class CardService {
         history.setTransferredAt(LocalDateTime.now());
 
         transferHistoryRepository.save(history);
-        log.info("Перевод завершен. История перевода ID: {}", history.getId());
+        log.info(
+                "Transfer completed. Transfer history ID: {}", history.getId()
+        );
     }
 
-    public CardResponse getCardById(Long id, String username) {
+    /**
+     * Retrieves a card by ID and checks if it belongs to the user.
+     *
+     * @param id card ID
+     * @param username user's email
+     * @return {@link CardResponse} with card information
+     * @throws NotFoundException if the user is not found
+     * @throws CardNotFoundException if the card is not found
+     * @throws ForbiddenOperationException
+     * if the card does not belong to the user
+     */
+    public CardResponse getCardById(final Long id, final String username) {
         User user = userRepository.findByEmail(username)
-                .orElseThrow(() -> new NotFoundException("Пользователь не найден"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
         Card card = cardRepository.findById(id)
-                .orElseThrow(() -> new CardNotFoundException("Карта не найдена"));
+                .orElseThrow(() -> new CardNotFoundException("Card not found"));
         if (!card.getUser().getId().equals(user.getId())) {
-            throw new ForbiddenOperationException("У вас нет доступа к этой карте");
+            throw new ForbiddenOperationException("No access to this card");
         }
 
         return mapToCardResponse(card);
     }
 
+    /**
+     * Retrieves the full transfer history.
+     *
+     * @return list of {@link TransferHistoryResponse}
+     */
     public List<TransferHistoryResponse> getAllTransfer() {
-        log.info("Получение всей истории переводов");
+        log.info("Retrieving full transfer history");
         return transferHistoryRepository.findAll().stream()
                 .map(t -> new TransferHistoryResponse(
                         t.getId(),
@@ -217,23 +417,40 @@ public class CardService {
                 .toList();
     }
 
-    public List<TransferHistoryResponse> getTransferByUserId(Long userId) {
-        log.info("Получение истории переводов для пользователя ID {}", userId);
-            return transferHistoryRepository.findAllByUserId(userId).stream()
-                    .map(t -> new TransferHistoryResponse(
-                            t.getId(),
-                            t.getSenderCard().getId(),
-                            t.getReceiverCard().getId(),
-                            t.getAmount(),
-                            t.getTransferredAt()
-                    ))
-                    .toList();
+    /**
+     * Retrieves transfer history for a specific user by user ID.
+     *
+     * @param userId user ID
+     * @return list of {@link TransferHistoryResponse}
+     */
+    public List<TransferHistoryResponse> getTransferByUserId(
+            final Long userId) {
+        log.info("Retrieving transfer history for user ID {}", userId);
+        return transferHistoryRepository.findAllByUserId(userId).stream()
+                .map(t -> new TransferHistoryResponse(
+                        t.getId(),
+                        t.getSenderCard().getId(),
+                        t.getReceiverCard().getId(),
+                        t.getAmount(),
+                        t.getTransferredAt()
+                ))
+                .toList();
     }
 
-    public ResponseEntity<List<TransferHistoryResponse>> getAllTransferUser(String email, Pageable pageable) {
-        log.info("Получение истории переводов для email: {}", email);
+    /**
+     * Retrieves a user's transfer history by email with pagination.
+     *
+     * @param email user's email
+     * @param pageable pagination information
+     * @return {@link ResponseEntity}
+     * containing a list of {@link TransferHistoryResponse}
+     * @throws NotFoundException if the user is not found
+     */
+    public ResponseEntity<List<TransferHistoryResponse>> getAllTransferUser(
+            final String email, final Pageable pageable) {
+        log.info("Retrieving transfer history for email: {}", email);
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new NotFoundException("Пользователь не найден"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
         Page<Card> cardPage = cardRepository.findByUser(user, pageable);
         List<Card> cards = cardPage.getContent();
@@ -242,7 +459,8 @@ public class CardService {
             return ResponseEntity.ok(List.of());
         }
 
-        List<TransferHistory> transfers = transferHistoryRepository.findBySenderOrReceiverCardIds(cards);
+        List<TransferHistory> transfers =
+                transferHistoryRepository.findBySenderOrReceiverCardIds(cards);
 
         List<TransferHistoryResponse> responses = transfers.stream()
                 .map(t -> new TransferHistoryResponse(

@@ -18,44 +18,77 @@ import com.example.bankcards.repository.BlockRequestRepository;
 import java.util.List;
 
 
+/**
+ * Service responsible for handling block requests for user cards.
+ * <p>
+ * This service allows creating, retrieving, and processing block requests.
+ * It ensures that only the card owner can request a block and that the
+ * card is in a valid state for blocking.
+ * </p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BlockRequestService {
 
+    /** Repository for accessing card entities. */
     private final CardRepository cardRepository;
+
+    /** Repository for accessing block request entities. */
     private final BlockRequestRepository blockRequestRepository;
 
-
-    public void createRequest(Long cardId, String userEmail) {
+    /**
+     * Creates a block request for a specific card.
+     *
+     * @param cardId    the ID of the card to block
+     * @param userEmail the email of the user requesting the block
+     * @throws NotFoundException if the card with the given ID does not exist
+     * @throws ForbiddenOperationException if the user
+     * is not the owner of the card
+     *         or the card is already blocked or expired,
+     *         or a block request already exists
+     */
+    public void createRequest(final Long cardId, final String userEmail) {
         Card card = cardRepository.findById(cardId)
                 .orElseThrow(() -> {
-                    log.warn("Карта с ID {} не найдена", cardId);
-                    return new NotFoundException("Карта с ID " + cardId + " не найдена");
+                    log.warn("Card with ID {} not found", cardId);
+                    return new NotFoundException(
+                            "Card with ID " + cardId + " not found");
                 });
 
-
         if (!card.getUser().getEmail().equals(userEmail)) {
-            log.warn("Попытка блокировки чужой карты. Владелец: {}, Запросивший: {}", card.getUser().getEmail(), userEmail);
-            throw new ForbiddenOperationException("Нельзя запрашивать блокировку чужой карты");
+            log.warn(
+                    "Attempt to block someone else's card."
+                            + " Owner: {}, Requester: {}",
+                    card.getUser().getEmail(), userEmail
+            );
+            throw new ForbiddenOperationException(
+                    "Cannot request block for another user's card"
+            );
         }
 
         if (card.getStatus() == CardStatus.BLOCKED) {
-            log.warn("Карта уже заблокирована. ID: {}", cardId);
-            throw new ForbiddenOperationException("Карта уже заблокирована");
+            log.warn("Card already blocked. ID: {}", cardId);
+            throw new ForbiddenOperationException("Card is already blocked");
         }
 
         if (card.getStatus() == CardStatus.EXPIRED) {
-            log.warn("Срок действия карты истек. ID: {}", cardId);
-            throw new ForbiddenOperationException("Срок действия карты истек");
+            log.warn("Card has expired. ID: {}", cardId);
+            throw new ForbiddenOperationException("Card has expired");
         }
 
         User user = card.getUser();
 
         boolean exists = blockRequestRepository.existsByUserAndCard(user, card);
         if (exists) {
-            log.warn("Запрос на блокировку уже существует. userId: {}, cardId: {}", user.getId(), card.getId());
-            throw new ForbiddenOperationException("Запрос на блокировку этой карты уже существует");
+            log.warn(
+                    "Block request already exists. userId: {}, cardId: {}",
+                    user.getId(),
+                    card.getId()
+            );
+            throw new ForbiddenOperationException(
+                    "A block request for this card already exists"
+            );
         }
 
         BlockRequest request = new BlockRequest();
@@ -63,12 +96,22 @@ public class BlockRequestService {
         request.setCard(card);
         blockRequestRepository.save(request);
 
-        log.info("Запрос на блокировку карты создан. userId: {}, cardId: {}", user.getId(), card.getId());
+        log.info(
+                "Block request created. userId: {}, cardId: {}",
+                user.getId(),
+                card.getId());
     }
 
+    /**
+     * Retrieves all pending (unprocessed) block requests.
+     *
+     * @return a list of {@link BlockResponse}
+     * objects representing pending requests
+     */
     public List<BlockResponse> getAllPendingRequests() {
-        List<BlockRequest> blockRequests = blockRequestRepository.findByProcessedFalse();
-        log.info("Найдено {} необработанных запросов", blockRequests.size());
+        List<BlockRequest> blockRequests =
+                blockRequestRepository.findByProcessedFalse();
+        log.info("Found {} unprocessed block requests", blockRequests.size());
         return blockRequests.stream()
                 .map(request -> new BlockResponse(
                         request.getId(),
@@ -79,20 +122,31 @@ public class BlockRequestService {
                 .toList();
     }
 
-    public void processBlockRequest(Long requestId) throws EntityNotFoundException {
+    /**
+     * Processes a block request by setting the card status to BLOCKED
+     * and marking the request as processed.
+     *
+     * @param requestId the ID of the block request to process
+     * @throws BlockRequestNotFoundException
+     * if the block request with the given ID does not exist
+     */
+    public void processBlockRequest(final Long requestId)
+            throws EntityNotFoundException {
         BlockRequest request = blockRequestRepository.findById(requestId)
                 .orElseThrow(() -> {
-                    log.warn("Запрос на блокировку с ID {} не найден", requestId);
-                    return new BlockRequestNotFoundException("Не найден запрос на блокировку");
+                    log.warn("Block request with ID {} not found", requestId);
+                    return new BlockRequestNotFoundException(
+                            "Block request not found"
+                    );
                 });
 
         Card card = request.getCard();
         card.setStatus(CardStatus.BLOCKED);
         cardRepository.save(card);
-        log.info("Карта заблокирована. cardId: {}", card.getId());
+        log.info("Card blocked. cardId: {}", card.getId());
 
         request.setProcessed(true);
         blockRequestRepository.save(request);
-        log.info("Запрос на блокировку отмечен как обработанный. requestId: {}", requestId);
+        log.info("Block request marked as processed. requestId: {}", requestId);
     }
 }

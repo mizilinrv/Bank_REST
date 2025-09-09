@@ -17,15 +17,34 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
+/**
+ * Service responsible for authentication and registration operations.
+ * <p>
+ * This service handles user registration, authentication, password encoding,
+ * and JWT token generation.
+ * </p>
+ */
 @Slf4j
 @Service
 @AllArgsConstructor
 public class AuthService {
 
+    /** Repository for performing CRUD operations on users. */
     private final UserRepository userRepository;
+
+    /** Password encoder for hashing and validating passwords. */
     private final PasswordEncoder passwordEncoder;
+
+    /** Service for generating and validating JWT tokens. */
     private final JwtService jwtService;
-    public UserPublicResponse registerUser(RegisterRequest request) {
+
+    /**
+     * Registers a new user in the system.
+     *
+     * @param request the registration request containing user details
+     * @return a public response with the registered user's information
+     */
+    public UserPublicResponse registerUser(final RegisterRequest request) {
         User user = User.builder()
                 .fullName(request.getFullName())
                 .email(request.getEmail())
@@ -35,20 +54,43 @@ public class AuthService {
                 .createdAt(LocalDateTime.now())
                 .build();
         userRepository.save(user);
-        log.info("Пользователь успешно зарегистрирован: {}", user.getEmail());
-        return new UserPublicResponse(user.getFullName(), user.getEmail(), user.getPhoneNumber());
+        log.info("User successfully registered: {}", user.getEmail());
+        return new UserPublicResponse(
+                user.getFullName(),
+                user.getEmail(),
+                user.getPhoneNumber()
+        );
     }
 
-    public AuthResponse authenticate(LoginRequest request) {
+    /**
+     * Authenticates a user using their email and password.
+     *
+     * @param request the login request containing email and password
+     * @return an authentication response containing the JWT token
+     * @throws NotFoundException if the user with the given email does not exist
+     * @throws InvalidCredentialsException if the password is incorrect
+     */
+    public AuthResponse authenticate(final LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> {
-                    log.warn("Пользователь с email {} не найден", request.getEmail());
-                    return new NotFoundException("Пользователь с таким email не найден: " + request.getEmail());
+                    log.warn(
+                            "User with email {} not found",
+                            request.getEmail()
+                    );
+                    return new NotFoundException(
+                            "User with email not found: " + request.getEmail()
+                    );
                 });
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            log.warn("Неверный пароль для пользователя с email: {}", request.getEmail());
-            throw new InvalidCredentialsException("Неверный email или пароль");
+        if (!passwordEncoder.matches(
+                request.getPassword(),
+                user.getPassword())
+        ) {
+            log.warn(
+                    "Invalid password for user with email: {}",
+                    request.getEmail()
+            );
+            throw new InvalidCredentialsException("Invalid email or password");
         }
 
         return jwtService.generateAuthToken(user.getEmail());

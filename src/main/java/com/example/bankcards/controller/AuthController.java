@@ -18,54 +18,100 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * REST controller for authentication and registration operations.
+ *
+ * <p>
+ * This controller provides endpoints for user registration and login.
+ * It delegates the business logic to {@link AuthService}.
+ * </p>
+ */
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
 @Slf4j
 public class AuthController {
 
+    /**
+     * Service layer for handling authentication and registration logic.
+     * <p>
+     * Provides methods to register new users and authenticate existing ones.
+     * The controller delegates all business logic related to authentication
+     * to this service.
+     * </p>
+     */
     private final AuthService authService;
 
+    /**
+     * Registers a new user and returns their public information.
+     *
+     * @param request the registration request containing user details
+     * @return a response entity containing the public user information
+     */
     @Operation(
-            summary = "Регистрация нового пользователя",
-            description = "Создает нового пользователя и возвращает публичную информацию о нем",
+            summary = "Register a new user",
+            description = "Creates a new user and "
+                    + "returns their public information",
             responses = {
                     @ApiResponse(
                             responseCode = "200",
-                            description = "Пользователь успешно зарегистрирован",
-                            content = @Content(mediaType = "application/json",
-                                    schema = @Schema(implementation = UserPublicResponse.class))
-                    ),
-                    @ApiResponse(responseCode = "400", description = "Неверный формат запроса")
+                            description = "User successfully registered",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(
+                                            implementation =
+                                                    UserPublicResponse.class
+                                    ))),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Invalid request format")
             }
     )
     @PostMapping("/registration")
     public ResponseEntity<UserPublicResponse> register(
             @Valid @RequestBody final RegisterRequest request
     ) {
-        log.info("Пользователь с email {} успешно зарегистрирован", request.getEmail());
+        log.info(
+                "User with email {} successfully registered",
+                request.getEmail());
         return ResponseEntity.ok(
                 authService.registerUser(request)
         );
     }
+
+    /**
+     * Authenticates a user and returns a JWT token with user information.
+     *
+     * @param request the login request containing credentials
+     * @return a response entity containing authentication details
+     */
     @Operation(
-            summary = "Аутентификация пользователя",
-            description = "Выполняет вход по логину и паролю, возвращает токен и информацию о пользователе",
+            summary = "Authenticate user",
+            description = "Performs login using"
+                    + " credentials and returns a token with user information",
             responses = {
                     @ApiResponse(
                             responseCode = "200",
-                            description = "Успешный вход",
+                            description = "Successfully authenticated",
                             content = @Content(mediaType = "application/json",
-                                    schema = @Schema(implementation = AuthResponse.class))
+                                    schema = @Schema(
+                                            implementation = AuthResponse.class
+                                    ))
                     ),
-                    @ApiResponse(responseCode = "401", description = "Неверные учетные данные")
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Invalid credentials"
+                    )
             }
     )
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
             @Valid @RequestBody final LoginRequest request
     ) {
-        log.info("Пользователь с email {} успешно вошел, токен выдан", request.getEmail());
+        log.info(
+                "User with email {} successfully logged in, token issued",
+                request.getEmail()
+        );
         return ResponseEntity.ok(
                 authService.authenticate(request)
         );
