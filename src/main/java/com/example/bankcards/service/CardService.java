@@ -23,13 +23,14 @@ import com.example.bankcards.repository.UserRepository;
 import com.example.bankcards.util.CardEncryptor;
 import com.example.bankcards.util.CardNumberGenerator;
 import jakarta.persistence.EntityNotFoundException;
-import jakarta.transaction.Transactional;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -320,13 +321,12 @@ public class CardService {
                 .orElseThrow(() -> new NotFoundException(
                         "User with email " + username + " not found")
                 );
-
-        Card fromCard = cardRepository.findById(request.getFromCardId())
+        Card fromCard =
+                cardRepository.findByIdForUpdate(request.getFromCardId())
                 .orElseThrow(() -> new CardNotFoundException(
                         "Sender card not found")
                 );
-
-        Card toCard = cardRepository.findById(request.getToCardId())
+        Card toCard = cardRepository.findByIdForUpdate(request.getToCardId())
                 .orElseThrow(() -> new CardNotFoundException(
                         "Receiver card not found")
                 );

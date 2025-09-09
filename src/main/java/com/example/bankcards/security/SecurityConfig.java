@@ -49,8 +49,6 @@ public class SecurityConfig {
      *     <li>All other requests require authentication</li>
      * </ul>
      * Adds JWT filter before the UsernamePasswordAuthenticationFilter.
-     * </p>
-     *
      * @param http the {@link HttpSecurity} object
      * @return the configured {@link SecurityFilterChain}
      * @throws Exception if an error occurs while configuring security
@@ -89,7 +87,7 @@ public class SecurityConfig {
     /**
      * Configures CORS settings for the application.
      * <p>
-     * Allows requests from http://localhost:3000, supports all HTTP methods,
+     * Allows requests from <a href="http://localhost:3000">...</a>, supports all HTTP methods,
      * all headers, and allows credentials.
      * </p>
      *
